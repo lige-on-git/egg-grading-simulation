@@ -452,7 +452,11 @@ accept_no_downgrade <- function(ordered_grade, packed_weight, packed_weight.se, 
   packed_curr_grade_num <- err_product(packed_weight, packed_weight.se, trial_stats[[grade2entry(ordered_grade)]][['mu_hat']],
                                        trial_stats[[grade2entry(ordered_grade)]][['mu_se']], product=FALSE)
   egg_number_list <- update_egg_numbers(ordered_grade, packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']], egg_number_list)
-  return(list(egg_number_left=egg_number_list))
+  
+  # still record same-grade packing ratio. can't assume 100% packing rate
+  same_grade_ratio <- err_product(packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']],
+                                 egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
+  return(list(same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_list))
 }
 
 accept_one_downgrade <- function(ordered_grade, downgraded_grade, packed_num, packed_weight, packed_weight.se, trial_stats, egg_number_list){
@@ -467,14 +471,17 @@ accept_one_downgrade <- function(ordered_grade, downgraded_grade, packed_num, pa
   packed_curr_grade_num <- total_num_to_pack[['order_grade_num']]  # n_j: number of packed J eggs
   
   # (2) - based on ratio of J and SJ eggs (mixture ratio), estimate # of generated SJ eggs and its downgrade ratio
-  # calculate downgrade ratio before updated egg numbers
+  # calculate downgrade ratio and same-grade ratio before updated egg numbers
   downgrade_ratio <- err_product(downgraded_num[['z']], downgraded_num[['dz']], 
                                  egg_number_list[[downgraded_grade]][['n_hat']], egg_number_list[[downgraded_grade]][['n_se']], product=FALSE)
+  
+  same_grade_ratio <- err_product(packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']],
+                                 egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
   
   egg_number_list <- update_egg_numbers(downgraded_grade, downgraded_num[['z']], downgraded_num[['dz']], egg_number_list)
   egg_number_list <- update_egg_numbers(ordered_grade, packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']], egg_number_list)
   
-  return(list(downgrade_ratio=downgrade_ratio, egg_number_left=egg_number_list))
+  return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_list))
 }
 
 accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, packed_weight, packed_weight.se, trial_stats, egg_number_list){
@@ -510,9 +517,13 @@ accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, 
   left_num.2.err <- egg_number_list[[downgraded_grades[2]]][['n_se']]
   sum12 <- err_sum(1,left_num.1,left_num.1.err, 1,left_num.2,left_num.2.err, add=TRUE)
   
-  # calculate downgrade ratio
+  # calculate downgrade ratio and same-grade ratio
   downgrade_ratio <- err_product(effective_num[['z']], effective_num[['dz']], 
                                  sum12[['z']], sum12[['dz']], product=FALSE)
+  
+  same_grade_ratio <- err_product(packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']],
+                                 egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
+  
   # updated egg numbers
   egg_number_list <- update_egg_numbers(downgraded_grades[1], n1, n1.err, egg_number_list)
   egg_number_list <- update_egg_numbers(downgraded_grades[2], n2, n2.err, egg_number_list)
@@ -521,7 +532,7 @@ accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, 
   # remove effective grade average
   trial_stats <- remove_effective_avg(trial_stats)
   
-  return(list(downgrade_ratio=downgrade_ratio, egg_number_left=egg_number_list))
+  return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_list))
 }
 
 no_downgrade_wrapper <- function(ordered_grade, trial_stats, egg_number_left){
@@ -531,9 +542,10 @@ no_downgrade_wrapper <- function(ordered_grade, trial_stats, egg_number_left){
   order_weight.err <- sum_weight_err(order_num)
   
   order_update <- accept_no_downgrade(ordered_grade, order_weight, order_weight.err, trial_stats, egg_number_left)
+  same_grade_ratio <- order_update[['same_grade_ratio']]
   egg_number_left <- order_update[['egg_number_left']]
   
-  return(list(downgrade_ratio=NULL, egg_number_left=egg_number_left))
+  return(list(downgrade_ratio=NULL, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_left))
 }
 
 one_downgrade_wrapper <- function(ordered_grade, downgraded_grade, trial_stats, egg_number_left){
@@ -544,9 +556,10 @@ one_downgrade_wrapper <- function(ordered_grade, downgraded_grade, trial_stats, 
   
   order_update <- accept_one_downgrade(ordered_grade, downgraded_grade, order_num, order_weight, order_weight.err, trial_stats, egg_number_left)
   downgrade_ratio <- order_update[['downgrade_ratio']]
+  same_grade_ratio <- order_update[['same_grade_ratio']]
   egg_number_left <- order_update[['egg_number_left']]
   
-  return(list(downgrade_ratio=downgrade_ratio, egg_number_left=egg_number_left))
+  return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_left))
 }
 
 two_downgrade_wrapper <- function(ordered_grade, downgraded_grades, trial_stats, egg_number_left){
@@ -557,9 +570,10 @@ two_downgrade_wrapper <- function(ordered_grade, downgraded_grades, trial_stats,
   
   order_update <- accept_two_downgrades(ordered_grade, downgraded_grades, order_num, order_weight, order_weight.err, trial_stats, egg_number_left)
   downgrade_ratio <- order_update[['downgrade_ratio']]
+  same_grade_ratio <- order_update[['same_grade_ratio']]
   egg_number_left <- order_update[['egg_number_left']]
   
-  return(list(downgrade_ratio=downgrade_ratio, egg_number_left=egg_number_left))
+  return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_left))
 }
 
 trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, downgrade_rules){
@@ -612,8 +626,10 @@ trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, d
   }
   egg_number_left <- large_order_update[['egg_number_left']]
   
-  return(list(egg_number_left=egg_number_left, sj_downgrade_ratio=jumbo_order_update[['downgrade_ratio']], 
-              j_downgrade_ratio=xlarge_order_update[['downgrade_ratio']], xl_downgrade_ratio=large_order_update[['downgrade_ratio']]))
+  return(list(egg_number_left=egg_number_left, 
+              sj_downgrade_ratio=jumbo_order_update[['downgrade_ratio']], j_same_grade_ratio=jumbo_order_update[['same_grade_ratio']],
+              j_downgrade_ratio=xlarge_order_update[['downgrade_ratio']], xl_same_grade_ratio=xlarge_order_update[['same_grade_ratio']],
+              xl_downgrade_ratio=large_order_update[['downgrade_ratio']], l_same_grade_ratio=large_order_update[['same_grade_ratio']]))
 }
 
 check_has_downgrade <- function(ordered_grade, trial_stats){
@@ -693,4 +709,4 @@ remove_effective_avg <- function(trial_stats){
 }
 
 ## _____________________________________________________________________________
-## Trial Reproduction and Simulation
+## Trial Reproduction and Subsequent Analysis
