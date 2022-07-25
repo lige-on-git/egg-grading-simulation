@@ -10,7 +10,7 @@ library('truncnorm')  # https://cran.r-project.org/web/packages/truncnorm/truncn
 source("./formal_analysis/config.R")
 
 ## _____________________________________________________________________________
-## Data Retrival and Exploration
+## Data Retrieval and Exploration
 trial2order <- function(trial_num){
   # return a vector of orders given a trial number
   fread(trial2order_path)[TrialNumber==trial_num, OrderId]
@@ -710,3 +710,160 @@ remove_effective_avg <- function(trial_stats){
 
 ## _____________________________________________________________________________
 ## Trial Reproduction and Subsequent Analysis
+trial.reproduce <- function(total_ordered_nums, mu.overall, var.overall, downgrade_rules, 
+                            downgrade_ratios, downgrade_ratios.err, same_grade_ratio, same_grade_ratio.err){
+  # total_ordered_nums: total ordered egg numbers of three orders - e.g. list(Jumbo=9524, XLarge=37733, Large=16105)
+  # randomly sample eggs from a normal distribution with parameters mu.overall and var.overall
+  # downgrade_rules: e.g. list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge", "Jumbo"))
+  # downgrade_ratios & same_grade_ratio: must match downgrade_rules, e.g. list(Jumbo=0.42, XLarge=0.0, Large=0.18)
+  # downgrade_ratios.err & same_grade_ratio.err: must match downgrade_ratios, e.g. list(Jumbo=0.04, XLarge=0.0, Large=0.02)
+  # i.e. 0.42 probability for a SJumbo egg to downgrade when passing the Jumbo production lanes
+  
+  jumbo_num <- total_ordered_nums[['Jumbo']]
+  xlarge_num <- total_ordered_nums[['XLarge']]
+  large_num <- total_ordered_nums[['Large']]
+  EOL_num <- 0  # end-of-lane
+  
+  # pack actual eggs inside orders
+  jumbo_eggs <- xlarge_eggs <- large_eggs <- EOL_eggs <- c()
+  
+  while(TRUE){
+    if(jumbo_num==0 & xlarge_num==0 & large_num==0){
+      break
+    }
+    egg <- rnorm(1, mu.overall, sqrt(var.overall))
+    # an egg passing through Jumbo, XLarge, and Large lanes in order
+    if(jumbo_num>0){
+      results <- passing_production_lane("Jumbo", jumbo_num, egg, downgrade_rules, 
+                                         downgrade_ratios, downgrade_ratios.err, same_grade_ratio, same_grade_ratio.err)
+      jumbo_num <- results[1]
+      packed <- results[2]
+      if(packed){
+        jumbo_eggs <- append(jumbo_eggs, egg)
+        next
+      }
+    }
+    if(xlarge_num>0){
+      results <- passing_production_lane("XLarge", xlarge_num, egg, downgrade_rules, 
+                                         downgrade_ratios, downgrade_ratios.err, same_grade_ratio, same_grade_ratio.err)
+      xlarge_num <- results[1]
+      packed <- results[2]
+      if(packed){
+        xlarge_eggs <- append(xlarge_eggs, egg)
+        next
+      }
+    }
+    if(large_num>0){
+      results <- passing_production_lane("Large", large_num, egg, downgrade_rules,
+                                         downgrade_ratios, downgrade_ratios.err, same_grade_ratio, same_grade_ratio.err)
+      large_num <- results[1]
+      packed <- results[2]
+      if(packed){
+        large_eggs <- append(large_eggs, egg)
+        next
+      }
+    }
+    EOL_num <- EOL_num + 1
+    EOL_eggs <- append(EOL_eggs, egg)
+  }
+  return(list(Jumbo=jumbo_eggs, XLarge=xlarge_eggs, Large=large_eggs, EOL=EOL_eggs))
+}
+
+passing_production_lane <- function(order_grade, left_num, egg.weight, downgrade_rules, 
+                                    downgrade_ratios, downgrade_ratios.err, same_grade_ratio, same_grade_ratio.err){
+  # represents the production lane of any of c("Jumbo", "XLarge", "Large") ordered grade
+  # left_num: how many ordered number of this grade still required to complete
+  accepted.grades <- downgrade_rules[[order_grade]]
+  downgrade.ratio <- downgrade_ratios[[order_grade]]   # probability of a higher grade egg to downgrade
+  downgrade.ratio.err <- downgrade_ratios.err[[order_grade]]
+  same_grade.ratio <- same_grade_ratio[[order_grade]]  # probability of a current grade egg to get packed
+  same_grade.ratio.err <- same_grade_ratio.err[[order_grade]]
+  egg.grade <- weight2grade(egg.weight)
+  
+  # sample downgrade ratio and same grade ratio by considering its error - assume normal distribution
+  downgrade.ratio <- rnorm(1, mean=downgrade.ratio, sd=downgrade.ratio.err)
+  same_grade.ratio <- rnorm(1, mean=same_grade.ratio, sd=same_grade.ratio.err)
+  
+  packed <- FALSE
+  if(egg.grade==order_grade){
+    if(runif(1)<=same_grade.ratio){
+      left_num <- left_num - 1
+      packed <- TRUE
+    }
+  }
+  else if(egg.grade %in% accepted.grades){
+    if(runif(1)<=downgrade.ratio){
+      left_num <- left_num - 1
+      packed <- TRUE
+    }
+  }
+  return(c(left_num, packed))
+}
+
+weight2grade <- function(weight){
+  # convert egg weight to grade
+  if(weight>get_grade_bounds("SJumbo")[1] & weight<get_grade_bounds("SJumbo")[2]){
+    return("SJumbo")
+  }
+  else if(weight>get_grade_bounds("Jumbo")[1] & weight<get_grade_bounds("Jumbo")[2]){
+    return("Jumbo")
+  }
+  else if(weight>get_grade_bounds("XLarge")[1] & weight<get_grade_bounds("XLarge")[2]){
+    return("XLarge")
+  }
+  else if(weight>get_grade_bounds("Large")[1] & weight<get_grade_bounds("Large")[2]){
+    return("Large")
+  }
+  else{
+    return("Others")
+  }
+}
+
+trial.reproduce.wrapper <- function(trial_results, trial_stats, downgrade_rules){
+  # a simple wrapper to run trial reproduction with minimum input parameters
+  
+  downgrade_ratios <- list(Jumbo=trial_results[['sj_downgrade_ratio']][['z']], 
+                           XLarge=trial_results[['j_downgrade_ratio']][['z']], Large=trial_results[['xl_downgrade_ratio']][['z']])
+  downgrade_ratios.err <- list(Jumbo=trial_results[['sj_downgrade_ratio']][['dz']], 
+                               XLarge=trial_results[['j_downgrade_ratio']][['dz']], Large=trial_results[['xl_downgrade_ratio']][['dz']])
+  
+  same_grade_ratios <- list(Jumbo=trial_results[['j_same_grade_ratio']][['z']], 
+                            XLarge=trial_results[['xl_same_grade_ratio']][['z']], Large=trial_results[['l_same_grade_ratio']][['z']])
+  same_grade_ratios.err <- list(Jumbo=trial_results[['j_same_grade_ratio']][['dz']], 
+                                XLarge=trial_results[['xl_same_grade_ratio']][['dz']], Large=trial_results[['l_same_grade_ratio']][['dz']])
+  
+  mu <- trial_stats[['supply_dist_est']][['mu']]
+  var <- trial_stats[['supply_dist_est']][['var']]
+  total_ordered_nums <- list(Jumbo=trial_stats[['jumbo_order']][['eggs']],
+                             XLarge=trial_stats[['xlarge_order']][['eggs']], Large=trial_stats[['large_order']][['eggs']])
+  
+  packed_eggs <- trial.reproduce(total_ordered_nums, mu, var, downgrade_rules, 
+                                 downgrade_ratios, downgrade_ratios.err, same_grade_ratios, same_grade_ratios.err)
+}
+
+get_simu_ratios <- function(packed_eggs, trial_stats){
+  # for a simulation row data collection stored in <packed_eggs>,
+  # we return giveaway and downgrade ratios of the overall process and of each ordered grades 
+  
+  grades <- names(packed_eggs)
+  giveaway.numerator <- downgrade.numerator <- denominator <- 0     # to compute the overall downgrade and giveaway ratio
+  stats <- list()
+  
+  for(grade in grades[1:(length(grades)-1)]){
+    stats[[grade]][['lower_bound']] <- get_grade_bounds(grade)[1]
+    stats[[grade]][['packed_avg']] <- mean(packed_eggs[[grade]])
+    stats[[grade]][['packed_num']] <- length(packed_eggs[[grade]])  # involve randomness
+    supply_grade_avg <- trial_stats[[grade2entry(grade)]]
+    stats[[grade]][['supply_grade_avg']] <- rnorm(1, mean=supply_grade_avg[['mu_hat']], sd=supply_grade_avg[['mu_se']])  # add randomness
+    
+    stats[[grade]][['downgrade_ratio']] <- (stats[[grade]][['packed_avg']] - stats[[grade]][['supply_grade_avg']]) / stats[[grade]][['lower_bound']]
+    stats[[grade]][['giveaway_ratio']] <- (stats[[grade]][['packed_avg']] - stats[[grade]][['lower_bound']]) / stats[[grade]][['lower_bound']]
+    
+    giveaway.numerator <- giveaway.numerator + stats[[grade]][['packed_num']] * (stats[[grade]][['packed_avg']] - stats[[grade]][['lower_bound']])
+    downgrade.numerator <- downgrade.numerator + stats[[grade]][['packed_num']] * (stats[[grade]][['packed_avg']] - stats[[grade]][['supply_grade_avg']])
+    denominator <- denominator + stats[[grade]][['packed_num']] * stats[[grade]][['lower_bound']]
+  }
+  return(list(ratios_by_grade=stats,
+              overall_giveaway.ratio=giveaway.numerator/denominator,
+              overall_downgrade.ratio=downgrade.numerator/denominator))
+}
