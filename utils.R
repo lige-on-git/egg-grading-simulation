@@ -451,11 +451,13 @@ accept_no_downgrade <- function(ordered_grade, packed_weight, packed_weight.se, 
   # simply calculate how many eggs of the current ordered_grade need to be packed
   packed_curr_grade_num <- err_product(packed_weight, packed_weight.se, trial_stats[[grade2entry(ordered_grade)]][['mu_hat']],
                                        trial_stats[[grade2entry(ordered_grade)]][['mu_se']], product=FALSE)
-  egg_number_list <- update_egg_numbers(ordered_grade, packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']], egg_number_list)
   
   # still record same-grade packing ratio. can't assume 100% packing rate
   same_grade_ratio <- err_product(packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']],
                                  egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
+  # calculate same-grade ratio before updated egg numbers
+  egg_number_list <- update_egg_numbers(ordered_grade, packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']], egg_number_list)
+  
   return(list(same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_list))
 }
 
@@ -522,7 +524,7 @@ accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, 
                                  sum12[['z']], sum12[['dz']], product=FALSE)
   
   same_grade_ratio <- err_product(packed_curr_grade_num[['z']], packed_curr_grade_num[['dz']],
-                                 egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
+                                  egg_number_list[[ordered_grade]][['n_hat']], egg_number_list[[ordered_grade]][['n_se']], product=FALSE)
   
   # updated egg numbers
   egg_number_list <- update_egg_numbers(downgraded_grades[1], n1, n1.err, egg_number_list)
@@ -780,18 +782,18 @@ passing_production_lane <- function(order_grade, left_num, egg.weight, downgrade
   same_grade.ratio.err <- same_grade_ratio.err[[order_grade]]
   egg.grade <- weight2grade(egg.weight)
   
-  # sample downgrade ratio and same grade ratio by considering its error - assume normal distribution
-  downgrade.ratio <- rnorm(1, mean=downgrade.ratio, sd=downgrade.ratio.err)
-  same_grade.ratio <- rnorm(1, mean=same_grade.ratio, sd=same_grade.ratio.err)
-  
   packed <- FALSE
   if(egg.grade==order_grade){
+    # sample same grade ratio by considering its error - assume normal distribution
+    same_grade.ratio <- rnorm(1, mean=same_grade.ratio, sd=same_grade.ratio.err)
     if(runif(1)<=same_grade.ratio){
       left_num <- left_num - 1
       packed <- TRUE
     }
   }
   else if(egg.grade %in% accepted.grades){
+    # sample downgrade ratio only if downgrade accepted
+    downgrade.ratio <- rnorm(1, mean=downgrade.ratio, sd=downgrade.ratio.err)
     if(runif(1)<=downgrade.ratio){
       left_num <- left_num - 1
       packed <- TRUE
@@ -841,10 +843,44 @@ trial.reproduce.wrapper <- function(trial_results, trial_stats, downgrade_rules)
                                  downgrade_ratios, downgrade_ratios.err, same_grade_ratios, same_grade_ratios.err)
 }
 
+get_simple_ratios <- function(trial_stats){
+  # use trial stats to compute the simple giveaway and downgrade ratios
+  # of the overall process and of each ordered grade (J, XL, L)
+  giveaway.numerator <- downgrade.numerator <- denominator <- 0     # to compute the overall downgrade and giveaway ratio
+  stats <- list()
+  
+  for(grade in ordered.grades){
+    stats[[grade]][['lower_bound']] <- get_grade_bounds(grade)[1]
+    stats[[grade]][['packed_avg']] <- trial_stats[[grade2entry.2(grade)]][['mean']]
+    stats[[grade]][['packed_num']] <- trial_stats[[grade2entry.2(grade)]][['eggs']]
+    stats[[grade]][['supply_grade_avg']] <- trial_stats[[grade2entry(grade)]][['mu_hat']]
+    packed_avg <- stats[[grade]][['packed_avg']]
+    supply_grade_avg <- stats[[grade]][['supply_grade_avg']]
+    
+    if(packed_avg>=supply_grade_avg){
+      giveaway_weight <- packed_avg - stats[[grade]][['lower_bound']]
+      downgrade_weight <- packed_avg - supply_grade_avg
+      stats[[grade]][['downgrade_ratio']] <- downgrade_weight / stats[[grade]][['lower_bound']]
+      stats[[grade]][['giveaway_ratio']] <- giveaway_weight / stats[[grade]][['lower_bound']]
+    }
+    else{  # don't allow "upgrade"; set downgrade to 0 if negative
+      downgrade_weight <- 0
+      giveaway_weight <- supply_grade_avg - stats[[grade]][['lower_bound']]
+      stats[[grade]][['downgrade_ratio']] <- 0
+      stats[[grade]][['giveaway_ratio']] <- giveaway_weight / stats[[grade]][['lower_bound']]
+    }
+    giveaway.numerator <- giveaway.numerator + stats[[grade]][['packed_num']] * giveaway_weight
+    downgrade.numerator <- downgrade.numerator + stats[[grade]][['packed_num']] * downgrade_weight
+    denominator <- denominator + stats[[grade]][['packed_num']] * stats[[grade]][['lower_bound']]
+  }
+  return(list(ratios_by_grade=stats,
+              overall_giveaway.ratio=giveaway.numerator/denominator,
+              overall_downgrade.ratio=downgrade.numerator/denominator))
+}
+
 get_simu_ratios <- function(packed_eggs, trial_stats){
   # for a simulation row data collection stored in <packed_eggs>,
-  # we return giveaway and downgrade ratios of the overall process and of each ordered grades 
-  
+  # we return giveaway and downgrade ratios of the overall process and of each ordered grade (J, XL, L)
   grades <- names(packed_eggs)
   giveaway.numerator <- downgrade.numerator <- denominator <- 0     # to compute the overall downgrade and giveaway ratio
   stats <- list()
@@ -866,4 +902,17 @@ get_simu_ratios <- function(packed_eggs, trial_stats){
   return(list(ratios_by_grade=stats,
               overall_giveaway.ratio=giveaway.numerator/denominator,
               overall_downgrade.ratio=downgrade.numerator/denominator))
+}
+
+ratio_samplings <- function(times, trial_results, trial_stats, downgrade_rules){
+  # to run <get_simu_ratios> multiple times
+  # return giveaway.ratio and downgrade.ratio in two vectors
+  g.ratios <- d.ratios <- c()
+  for(i in (1:times)){
+    packed_eggs <- trial.reproduce.wrapper(trial_results, trial_stats, downgrade_rules)
+    ratio_stats <- get_simu_ratios(packed_eggs, trial_stats)
+    g.ratios <- append(g.ratios, ratio_stats[['overall_giveaway.ratio']])
+    d.ratios <- append(d.ratios, ratio_stats[['overall_downgrade.ratio']])
+  }
+  return(list(giveaway.ratios=g.ratios, downgrade.ratios=d.ratios))
 }
