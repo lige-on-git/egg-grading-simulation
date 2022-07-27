@@ -1,6 +1,7 @@
 ## Common shared constants
 
 # available egg grades and their ranges in gram
+ordered.grades <- c("Jumbo", "XLarge", "Large")
 grades <- c("Oversize","SJumbo", "Jumbo", "XLarge", "55", "Large", "Medum", "Undersize")
 ranges.1 <- list(Medum=c(41.7, 50), Large=c(50, 54), '55'=c(54, 58.2), XLarge=c(58.2, 66.7), Jumbo=c(66.7, 68.3), SJumbo=c(68.3, 79))
 ranges.2 <- list(Medum=c(41.7, 50), Large=c(50, 54), '55'=c(54, 58.2), XLarge=c(58.2, 66.7), Jumbo=c(66.7, 74), SJumbo=c(74, 79))
