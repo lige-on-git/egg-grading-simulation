@@ -189,7 +189,7 @@ sum_weight_err <- function(n){
   # n is number of eggs
   # suppose dx=0.1g is the error of an egg weight
   # return the measurement error of the total weight
-  dx <- 0.1
+  dx <- 0.2
   error <- sqrt(dx^2 * n)
 }
 
@@ -486,11 +486,14 @@ accept_one_downgrade <- function(ordered_grade, downgraded_grade, packed_num, pa
   return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_list))
 }
 
-accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, packed_weight, packed_weight.se, trial_stats, egg_number_list){
+accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, packed_weight, packed_weight.se, trial_stats, egg_number_list, 
+                                  mode='probability-ratio', ratio=NULL){
   # The function to control the analysis if a grade accept downgrade from two other grades (see notes for algorithm details)
   # parameters exactly same as function <accept_one_downgrade>,
   # except that the downgraded grade is now an effective grade
-  # downgraded_grades: a vector of two grades selected from c('XLarge', 'Jumbo', 'SJumbo'). Any combination accepted.
+  # downgraded_grades: a vector of two grades selected from c('XLarge', 'Jumbo', 'SJumbo'). Any combination accepted
+  # mode: one of c('probability-ratio','exploration') - see function <add_effective_avg> for details
+  # ratio: N2/N1 - treat as a constant
   if(length(downgraded_grades) != 2){
     print("downgrade grade number must be two")
     return(NULL)
@@ -498,15 +501,25 @@ accept_two_downgrades <- function(ordered_grade, downgraded_grades, packed_num, 
   check_has_downgrade(ordered_grade, trial_stats)
   
   # add effective grade average
-  trial_stats <- add_effective_avg(downgraded_grades, egg_number_list, trial_stats)
+  trial_stats <- add_effective_avg(downgraded_grades, egg_number_list, trial_stats, mode, ratio)
   
   # packed egg numbers
   total_num_to_pack <- packed_egg_nums(ordered_grade, 'effective_grade', packed_num, packed_weight, packed_weight.se, trial_stats)
-  effective_num <- total_num_to_pack[['downgraded_num']]  # number of combined downgraded eggs
-  packed_curr_grade_num <- total_num_to_pack[['order_grade_num']]
+  effective_num <- total_num_to_pack[['downgraded_num']]           # number of the combined downgraded eggs
+  packed_curr_grade_num <- total_num_to_pack[['order_grade_num']]  # number of the eggs that are packed in their own order
   
   # split the combined downgraded egg numbers
-  split_results <- split_comb_downgrade(downgraded_grades[1], downgraded_grades[2], effective_num, egg_number_list)
+  if(mode=='probability-ratio'){
+    split_results <- split_comb_downgrade(effective_num, egg_number_list, 
+                                          ratio=two_grades_ratio(downgraded_grades[2], downgraded_grades[1], egg_number_list)[['z']])
+  }
+  else if(mode=='exploration' & is.numeric(ratio)){
+    split_results <- split_comb_downgrade(effective_num, egg_number_list, ratio)
+  }
+  else{
+    print("Invalid N2/N1 ratio mode or ratio data type")
+    return(NULL)
+  }
   n1 <- split_results[['n1_result']][['z']]
   n1.err <- split_results[['n1_result']][['dz']]
   n2 <- split_results[['n2_result']][['z']]
@@ -564,13 +577,15 @@ one_downgrade_wrapper <- function(ordered_grade, downgraded_grade, trial_stats, 
   return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_left))
 }
 
-two_downgrade_wrapper <- function(ordered_grade, downgraded_grades, trial_stats, egg_number_left){
+two_downgrade_wrapper <- function(ordered_grade, downgraded_grades, trial_stats, egg_number_left, mode='probability-ratio', ratio=NULL){
   # if one order accept two downgrade grades
+  # mode: one of c('probability-ratio','exploration') - see function <add_effective_avg> for details
+  # ratio: N2/N1 - treat as a constant
   order_num <- trial_stats[[grade2entry.2(ordered_grade)]][['eggs']]
   order_weight <- trial_stats[[grade2entry.2(ordered_grade)]][['weight']]
   order_weight.err <- sum_weight_err(order_num)
   
-  order_update <- accept_two_downgrades(ordered_grade, downgraded_grades, order_num, order_weight, order_weight.err, trial_stats, egg_number_left)
+  order_update <- accept_two_downgrades(ordered_grade, downgraded_grades, order_num, order_weight, order_weight.err, trial_stats, egg_number_left, mode, ratio)
   downgrade_ratio <- order_update[['downgrade_ratio']]
   same_grade_ratio <- order_update[['same_grade_ratio']]
   egg_number_left <- order_update[['egg_number_left']]
@@ -578,12 +593,16 @@ two_downgrade_wrapper <- function(ordered_grade, downgraded_grades, trial_stats,
   return(list(downgrade_ratio=downgrade_ratio, same_grade_ratio=same_grade_ratio, egg_number_left=egg_number_left))
 }
 
-trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, downgrade_rules){
+trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, downgrade_rules, mode='probability-ratio', ratios=c(0,0)){
   ## a simple wrapper function to run factory trial analysis for one time
   ## there are 3 orders in each trial, follow the J-XL-L order
   ## downgrade_rules: the accepted downgrade rules for 3 orders. Three rules available: none, one, or two allowed downgrades.
   ## e.g. trial 3, downgrade_rules <- list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge", "Jumbo")), i.e the Jumbo order accept one,
   ## the XLarge order accept none, and the Large order accept two downgraded grades.
+  ## mode: one of c('probability-ratio','exploration') - see function <add_effective_avg> for details - available when there are two downgraded grades
+  ## ratios: if c(ratio1, ratio2), both XLarge and Large orders accept two downgraded grades;
+  ## if c(0, ratio), only Large order accepts two downgraded grades;
+  ## if c(ratio, 0), only XLarge order accepts two downgraded grades.
   
   sjumbo_num_dist <- egg_grade_initial_number(total_ordered_num, "SJumbo", mu.overall, var.overall)
   jumbo_num_dist <- egg_grade_initial_number(total_ordered_num, "Jumbo", mu.overall, var.overall)
@@ -593,10 +612,7 @@ trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, d
   egg_number_left <- list(SJumbo=sjumbo_num_dist, Jumbo=jumbo_num_dist, XLarge=xlarge_num_dist, Large=large_num_dist)
   
   # Jumbo order
-  if(length(downgrade_rules[['Jumbo']])==2){
-    jumbo_order_update <- two_downgrade_wrapper('Jumbo', downgrade_rules[['Jumbo']], trial_stats, egg_number_left)
-  }
-  else if(length(downgrade_rules[['Jumbo']])==1){
+  if(length(downgrade_rules[['Jumbo']])==1){
     jumbo_order_update <- one_downgrade_wrapper('Jumbo', downgrade_rules[['Jumbo']], trial_stats, egg_number_left)
   }
   else if(length(downgrade_rules[['Jumbo']])==0){
@@ -605,8 +621,16 @@ trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, d
   egg_number_left <- jumbo_order_update[['egg_number_left']]
   
   # XLarge order
-  if(length(downgrade_rules[['XLarge']])==2){
-    xlarge_order_update <- two_downgrade_wrapper('XLarge', downgrade_rules[['XLarge']], trial_stats, egg_number_left)
+  if(length(downgrade_rules[['XLarge']])==2 & mode=='probability-ratio'){
+    xlarge_order_update <- two_downgrade_wrapper('XLarge', downgrade_rules[['XLarge']], trial_stats, egg_number_left, mode, ratio=NULL)
+  }
+  else if(length(downgrade_rules[['XLarge']])==2 & mode=='exploration'){
+    if(ratios[1] == 0){
+      xlarge_order_update <- two_downgrade_wrapper('XLarge', downgrade_rules[['XLarge']], trial_stats, egg_number_left, mode, ratio=NULL)  # convert 0 to NULL
+    }
+    else{
+      xlarge_order_update <- two_downgrade_wrapper('XLarge', downgrade_rules[['XLarge']], trial_stats, egg_number_left, mode, ratio=ratios[1])
+    }
   }
   else if(length(downgrade_rules[['XLarge']])==1){
     xlarge_order_update <- one_downgrade_wrapper('XLarge', downgrade_rules[['XLarge']], trial_stats, egg_number_left)
@@ -617,8 +641,16 @@ trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, d
   egg_number_left <- xlarge_order_update[['egg_number_left']]
   
   # Large order
-  if(length(downgrade_rules[['Large']])==2){
-    large_order_update <- two_downgrade_wrapper('Large', downgrade_rules[['Large']], trial_stats, egg_number_left)
+  if(length(downgrade_rules[['Large']])==2 & mode=='probability-ratio'){
+    large_order_update <- two_downgrade_wrapper('Large', downgrade_rules[['Large']], trial_stats, egg_number_left, mode, ratio=NULL)
+  }
+  else if(length(downgrade_rules[['Large']])==2 & mode=='exploration'){
+    if(ratios[2] == 0){
+      large_order_update <- two_downgrade_wrapper('Large', downgrade_rules[['Large']], trial_stats, egg_number_left, mode, ratio=NULL)  # convert 0 to NULL
+    }
+    else{
+      large_order_update <- two_downgrade_wrapper('Large', downgrade_rules[['Large']], trial_stats, egg_number_left, mode, ratio=ratios[2])
+    }
   }
   else if(length(downgrade_rules[['Large']])==1){
     large_order_update <- one_downgrade_wrapper('Large', downgrade_rules[['Large']], trial_stats, egg_number_left)
@@ -646,15 +678,12 @@ check_has_downgrade <- function(ordered_grade, trial_stats){
   }
 }
 
-split_comb_downgrade <- function(grade.1, grade.2, effective_num, egg_number_list){
+split_comb_downgrade <- function(effective_num, egg_number_list, ratio){
   # split the effective downgraded number to numbers in two grades (n1- and n2-)
-  # N2/N1
-  ratio_results <- two_grades_ratio(grade.2, grade.1, egg_number_list)
-  ratio <- ratio_results[['z']]
-  ratio.err <- ratio_results[['dz']]
+  # ratio: N2/N1 - treat as a constant
   
   # n1-
-  n1_result <- err_product(effective_num[['z']], effective_num[['dz']], 1+ratio, ratio.err, product=FALSE)
+  n1_result <- list(z=effective_num[['z']]/(1+ratio), dz=effective_num[['dz']]/(1+ratio))
   
   # n2-
   n2_result <- err_sum(1,effective_num[['z']],effective_num[['dz']], 1,n1_result[['z']],n1_result[['dz']], add=FALSE)
@@ -671,12 +700,22 @@ two_grades_ratio <- function(grade.1, grade.2, egg_number_list){
   return(err_product(N1, N1.err, N2, N2.err, product=FALSE))
 }
 
-add_effective_avg <- function(downgraded_grades, egg_number_list, trial_stats){
+add_effective_avg <- function(downgraded_grades, egg_number_list, trial_stats, mode='probability-ratio', ratio=NULL){
   # downgraded_grades: a vector of two grades selected from c('XLarge', 'Jumbo', 'SJumbo'). Any combination accepted
   # Add the grade avg and error of the effective grade combined by the two downgraded grades to <trial_stats>.
-  # Algorithm details see my notebook.
-  grade.1 <- downgraded_grades[1]
-  grade.2 <- downgraded_grades[2]
+  # mode: one of c('probability-ratio','exploration')
+  # <probability-ratio>: n2-/n2-=P2/P1=N2/N1 - no need to consider error of the ratio
+  # <exploration>: any constant ratio of N2/N1 accepted - no need to consider error of the ratio
+  # ratio: N2/N1 - treat as a constant
+  
+  if(length(downgraded_grades)==2){
+    grade.1 <- downgraded_grades[1]
+    grade.2 <- downgraded_grades[2]
+  }
+  else{
+    print("To add effective average must only have two downgraded grades")
+    return(NULL)
+  }
   
   # get w1 and w2
   grade.1.avg <- trial_stats[[grade2entry(grade.1)]][['mu_hat']]
@@ -685,19 +724,25 @@ add_effective_avg <- function(downgraded_grades, egg_number_list, trial_stats){
   grade.2.avg.err <- trial_stats[[grade2entry(grade.2)]][['mu_se']]
   
   # N2/N1
-  ratio_results <- two_grades_ratio(grade.2, grade.1, egg_number_list)
-  ratio <- ratio_results[['z']]
-  ratio.err <- ratio_results[['dz']]
+  if(mode=='probability-ratio'){
+    ratio <- two_grades_ratio(grade.2, grade.1, egg_number_list)[['z']]
+  }
+  else if(mode=='exploration' & !is.numeric(ratio)){
+    print("In the ratio exploration mode the input <ratio> must be assigned a valid number")
+    return(NULL)
+  }
+  else if(mode!='exploration'){
+    print("Invalid mode when assigning N2/N1 ratio")
+    return(NULL)
+  }
   
   # (N2/N1)*w2
-  right_result <- err_product(ratio, ratio.err, grade.2.avg, grade.2.avg.err, product=TRUE)
-  right <- right_result[['z']]
-  right.err <- right_result[['dz']]
+  right <- ratio*grade.2.avg
+  right.err <- ratio*grade.2.avg.err
   
   # w1 + (N2/N1)*w2
-  eff.avg_result <- err_sum(1,grade.1.avg,grade.1.avg.err, 1,right,right.err, add=TRUE)
-  eff.avg <- eff.avg_result[['z']]
-  eff.avg.err <- eff.avg_result[['dz']]
+  eff.avg <- err_sum(1,grade.1.avg,grade.1.avg.err, 1,right,right.err, add=TRUE)[['z']]
+  eff.avg.err <- err_sum(1,grade.1.avg,grade.1.avg.err, 1,right,right.err, add=TRUE)[['dz']]
   
   # update
   trial_stats[['effective_grade']] <- list(mu_hat=eff.avg, mu_se=eff.avg.err)
@@ -708,6 +753,20 @@ remove_effective_avg <- function(trial_stats){
   # remove the temporary effective grade from <trial_stats>
   trial_stats[['effective_grade']] <- NULL
   return(trial_stats)
+}
+
+check_insufficient_eggs <- function(egg_number_list){
+  # check which grade has insufficient supplied egg number
+  left_num_by_grade <- c()
+  for(grade in ordered.grades){
+    egg_left <- egg_number_list[['egg_number_left']][[grade]][['n_hat']]
+    egg_left.error <- egg_number_list[['egg_number_left']][[grade]][['n_se']]
+    left_num_by_grade <- append(left_num_by_grade, egg_left+egg_left.error)
+  }
+  if(min(left_num_by_grade)<0){
+    return(ordered.grades[which.min(left_num_by_grade)])
+  }
+  # return NULL if no insufficient grade
 }
 
 ## _____________________________________________________________________________
@@ -847,6 +906,7 @@ get_simple_ratios <- function(trial_stats){
   # use trial stats to compute the simple giveaway and downgrade ratios
   # of the overall process and of each ordered grade (J, XL, L)
   giveaway.numerator <- downgrade.numerator <- denominator <- 0     # to compute the overall downgrade and giveaway ratio
+  giveaway.numerator.err <- downgrade.numerator.err <- 0
   stats <- list()
   
   for(grade in ordered.grades){
@@ -854,28 +914,46 @@ get_simple_ratios <- function(trial_stats){
     stats[[grade]][['packed_avg']] <- trial_stats[[grade2entry.2(grade)]][['mean']]
     stats[[grade]][['packed_num']] <- trial_stats[[grade2entry.2(grade)]][['eggs']]
     stats[[grade]][['supply_grade_avg']] <- trial_stats[[grade2entry(grade)]][['mu_hat']]
-    packed_avg <- stats[[grade]][['packed_avg']]
-    supply_grade_avg <- stats[[grade]][['supply_grade_avg']]
+    
+    packed_avg <- stats[[grade]][['packed_avg']]  # avg weight packed into an ordered grade
+    supply_grade_avg <- stats[[grade]][['supply_grade_avg']]  # avg weight of a supplied grade
+    packed_avg.err <- sum_weight_err(stats[[grade]][['packed_num']]) / stats[[grade]][['packed_num']]  # measurement error
+    supply_grade_avg.err <- trial_stats[[grade2entry(grade)]][['mu_se']]  # modeled error
     
     if(packed_avg>=supply_grade_avg){
       giveaway_weight <- packed_avg - stats[[grade]][['lower_bound']]
+      giveaway_weight.err <- err_sum(1,packed_avg,packed_avg.err, 1,stats[[grade]][['lower_bound']],0.01, add=FALSE)[['dz']]
       downgrade_weight <- packed_avg - supply_grade_avg
+      downgrade_weight.err <- err_sum(1,packed_avg,packed_avg.err, 1,supply_grade_avg,supply_grade_avg.err, add=FALSE)[['dz']]
       stats[[grade]][['downgrade_ratio']] <- downgrade_weight / stats[[grade]][['lower_bound']]
+      stats[[grade]][['downgrade_ratio_err']] <- downgrade_weight.err / stats[[grade]][['lower_bound']]
       stats[[grade]][['giveaway_ratio']] <- giveaway_weight / stats[[grade]][['lower_bound']]
+      stats[[grade]][['giveaway_ratio_err']] <- giveaway_weight.err / stats[[grade]][['lower_bound']]
     }
     else{  # don't allow "upgrade"; set downgrade to 0 if negative
       downgrade_weight <- 0
       giveaway_weight <- supply_grade_avg - stats[[grade]][['lower_bound']]
+      giveaway_weight.err <- supply_grade_avg.err
       stats[[grade]][['downgrade_ratio']] <- 0
+      stats[[grade]][['downgrade_ratio_err']] <- 0
       stats[[grade]][['giveaway_ratio']] <- giveaway_weight / stats[[grade]][['lower_bound']]
+      stats[[grade]][['giveaway_ratio_err']] <- giveaway_weight.err / stats[[grade]][['lower_bound']]
     }
-    giveaway.numerator <- giveaway.numerator + stats[[grade]][['packed_num']] * giveaway_weight
-    downgrade.numerator <- downgrade.numerator + stats[[grade]][['packed_num']] * downgrade_weight
+    giveaway.numerator <- err_sum(1,giveaway.numerator,giveaway.numerator.err, 
+                                  stats[[grade]][['packed_num']],giveaway_weight,giveaway_weight.err, add=TRUE)[['z']]
+    giveaway.numerator.err <- err_sum(1,giveaway.numerator,giveaway.numerator.err, 
+                                      stats[[grade]][['packed_num']],giveaway_weight,giveaway_weight.err, add=TRUE)[['dz']]
+    downgrade.numerator <- err_sum(1,downgrade.numerator,downgrade.numerator.err, 
+                                   stats[[grade]][['packed_num']],downgrade_weight,downgrade_weight.err, add=TRUE)[['z']]
+    downgrade.numerator.err <- err_sum(1,downgrade.numerator,downgrade.numerator.err, 
+                                       stats[[grade]][['packed_num']],downgrade_weight,downgrade_weight.err, add=TRUE)[['dz']]
     denominator <- denominator + stats[[grade]][['packed_num']] * stats[[grade]][['lower_bound']]
   }
   return(list(ratios_by_grade=stats,
               overall_giveaway.ratio=giveaway.numerator/denominator,
-              overall_downgrade.ratio=downgrade.numerator/denominator))
+              overall_giveaway.ratio.err=giveaway.numerator.err/denominator,
+              overall_downgrade.ratio=downgrade.numerator/denominator,
+              overall_downgrade.ratio.err=downgrade.numerator.err/denominator))
 }
 
 get_simu_ratios <- function(packed_eggs, trial_stats){

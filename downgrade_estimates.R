@@ -54,27 +54,62 @@ get_simple_ratios(trial.2)
 mu.supply2 <- trial.2[['supply_dist_est']][['mu']]
 var.supply2 <- trial.2[['supply_dist_est']][['var']]  # same supply distribution as trial 1
 
-# initial analysis
-ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
-trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")))
+# store means of simulated eggs packed in the Large order and the N2/N1 ratios
+means.L <- c()
+ratios.21 <- c
 
-# insufficient L egg number
-deficit_num <- -1*trial.2_results[['egg_number_left']][['Large']][['n_hat']]
-grade_prop <- egg_grade_initial_proportion("Large", mu.supply2, var.supply2)
+for(ratio in 0.01*10^(seq(0,3,0.2))){
+  # ratio: N2/N1 - treat as a constant (between 0 and 10? since n(SJ)<n(J)<n(XL), I anticipate N1<N2)
+  # initial analysis
+  ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
+  trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
+                               mode='exploration', ratios=c(0,ratio))  # only Large order accepts two downgraded grades;
+  
+  # auto check which grade has insufficient supply
+  grade.insufficient <- check_insufficient_eggs(trial.2_results)
+  
+  if(!is.null(grade.insufficient)){
+    # offset insufficient egg number
+    deficit_num <- -1*trial.2_results[['egg_number_left']][[grade.insufficient]][['n_hat']]
+    grade_prop <- egg_grade_initial_proportion(grade.insufficient, mu.supply2, var.supply2)
+    extra_total_num <- deficit_num/grade_prop
+    
+    # second analysis after update the total egg number
+    ordered_num.total2 <- round(ordered_num.total2 + extra_total_num)  # use integer for binomial sampling
+    trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
+                                 mode='exploration', ratios=c(0,ratio))
+  }
+  # run simulation to check if the current ratio is correct
+  packed_eggs <- trial.reproduce.wrapper(trial.2_results, trial.2, downgrade_rules=list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")))
+
+  means.L <- append(means.L, mean(packed_eggs[["Large"]]))
+  ratios.21 <- append(ratios.21, ratio)
+}
+
+# check which ratio can result in the most accurate Large order mean
+large.mean <- trial.2$large_order$mean
+plot(ratios.21, means.L)
+abline(h=large.mean)
+
+means.L.copy <- means.L
+means.L.copy <- abs(means.L.copy - large.mean)
+best.ratio21 <- ratios.21[which.min(means.L.copy)]
+
+
+#
+ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
+trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
+                             mode='exploration', ratios=c(0,best.ratio21))  # only Large order accepts two downgraded grades;
+
+grade.insufficient <- check_insufficient_eggs(trial.2_results)
+
+deficit_num <- -1*trial.2_results[['egg_number_left']][[grade.insufficient]][['n_hat']]
+grade_prop <- egg_grade_initial_proportion(grade.insufficient, mu.supply2, var.supply2)
 extra_total_num <- deficit_num/grade_prop
 
-# second analysis after update the total egg number
 ordered_num.total2 <- round(ordered_num.total2 + extra_total_num)  # use integer for binomial sampling
-trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")))
-
-# more L egg number
-surplus_num <- +1*trial.2_results[['egg_number_left']][['Large']][['n_hat']]
-grade_prop <- egg_grade_initial_proportion("Large", mu.supply2, var.supply2)
-less_total_num <- surplus_num/grade_prop
-
-# third analysis after update the total egg number
-ordered_num.total2 <- round(ordered_num.total2 - less_total_num)  # use integer for binomial sampling
-trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")))
+trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
+                             mode='exploration', ratios=c(0,best.ratio21))
 
 
 ## ________________________________________________
@@ -140,15 +175,14 @@ ordered_num.total6 <- round(ordered_num.total6 + extra_total_num)  # use integer
 trial.6_results <- trial.run(ordered_num.total6, mu.supply6, var.supply6, trial.6, list(Jumbo=c("SJumbo"), XLarge=c("Jumbo", "SJumbo"), Large=c("XLarge","Jumbo")))
 
 
-
-
-
-
-
-
-
-
-
-
-
-# 
+## ________________________________________________
+## Significance test of two means with error bars
+test_diff_using_err <- function(ratio1, ratio1.err, ratio2, ratio2.err){
+  # use two-sample t test to test if two variables (with error bars) are significantly equal or not
+  t <- abs(ratio1-ratio2)/sqrt((ratio1.err^2+ratio2.err^2)/2)
+  df <- 1
+  pt(t, df, lower.tail=FALSE)
+}
+test_diff_using_err(0.0844, 0.0001, 0.0842, 0.0001)
+plot(seq(-0.0005,0.0005,0.00001), dnorm(seq(-0.0005,0.0005,0.00001), 0, 0.0001), type='l')
+lines(seq(-0.0005,0.0005,0.00001), dnorm(seq(-0.0005,0.0005,0.00001), 0.0003, 0.0001))
