@@ -60,7 +60,7 @@ rules.2 <- list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo"))
 means.L.2 <- c()
 ratios.21.2 <- c()
 
-for(ratio in 0.01*10^(seq(0,2,0.1))){
+for(ratio in 0.001*10^(seq(0,2,0.1))){
   # ratio: N2/N1 - treat as a constant (between 0 and 1? since n(SJ)<n(J)<n(XL), I anticipate N1<N2)
   # initial analysis
   ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
@@ -100,7 +100,7 @@ best.ratio21.2 <- ratios.21.2[which.min(means.L.2.copy)]
 # using the "best" N2/N1 ratio to estimate the "best" downgrade probability
 ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
 trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
-                             mode='exploration', ratios=c(0,best.ratio21))  # only Large order accepts two downgraded grades;
+                             mode='exploration', ratios=c(0,best.ratio21.2))  # only Large order accepts two downgraded grades;
 
 grade.insufficient <- check_insufficient_eggs(trial.2_results)
 
@@ -110,7 +110,7 @@ extra_total_num <- deficit_num/grade_prop
 
 ordered_num.total2 <- round(ordered_num.total2 + extra_total_num)  # use integer for binomial sampling
 trial.2_results <- trial.run(ordered_num.total2, mu.supply2, var.supply2, trial.2, list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo")),
-                             mode='exploration', ratios=c(0,best.ratio21))
+                             mode='exploration', ratios=c(0,best.ratio21.2))
 
 
 ## ________________________________________________
@@ -147,11 +147,11 @@ means.L.5 <- c()
 ratios.21.5.XL <- c()  # ratio to downgrade to XLarge order
 ratios.21.5.L <- c()   # ratio to downgrade to Large order
 
+start_time <- Sys.time()
 for(ratio1 in 0.01*10^(seq(0,2,0.1))){
   for(ratio2 in 0.01*10^(seq(0,2,0.1))){
     # ratio: N2/N1 - treat as a constant (between 0 and 1? since n(SJ)<n(J)<n(XL), I anticipate N1<N2)
     # initial analysis
-    
     ordered_num.total5 <- trial.5[['large_order']][['eggs']] + trial.5[['xlarge_order']][['eggs']] + trial.5[['jumbo_order']][['eggs']]
     trial.5_results <- trial.run(ordered_num.total5, mu.supply5, var.supply5, trial.5, rules.5,
                                  mode='exploration', ratios=c(ratio1,ratio2))  # both XLarge (ratio1) and Large (ratio2) orders accept two downgraded grades)
@@ -179,6 +179,8 @@ for(ratio1 in 0.01*10^(seq(0,2,0.1))){
     ratios.21.5.L <- append(ratios.21.5.L, ratio2)
   }
 }
+end_time <- Sys.time()
+end_time - start_time  # Time difference of around 33.86952 mins for 21^2=441 iterations
 
 # check which ratio can result in the most accurate Large order mean
 plot_ly(x=ratios.21.5.L, y=ratios.21.5.XL, z=means.L.5, type="scatter3d", mode="markers", color=means.L.5)
@@ -208,7 +210,6 @@ extra_total_num <- deficit_num/grade_prop
 ordered_num.total5 <- round(ordered_num.total5 + extra_total_num)  # use integer for binomial sampling
 trial.5_results <- trial.run(ordered_num.total5, mu.supply5, var.supply5, trial.5, rules.5,
                              mode='exploration', ratios=c(best.ratio21.5.XL,best.ratio21.5.L))
-
 
 
 ## ________________________________________________
