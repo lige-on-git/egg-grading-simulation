@@ -600,7 +600,7 @@ trial.run <- function(total_ordered_num, mu.overall, var.overall, trial_stats, d
   ## e.g. trial 3, downgrade_rules <- list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge", "Jumbo")), i.e the Jumbo order accept one,
   ## the XLarge order accept none, and the Large order accept two downgraded grades.
   ## mode: one of c('probability-ratio','exploration') - see function <add_effective_avg> for details - available when there are two downgraded grades
-  ## ratios: if c(ratio1, ratio2), both XLarge and Large orders accept two downgraded grades;
+  ## ratios: if c(ratio1, ratio2), both XLarge and Large orders accept two downgraded grades; - use if mode=="exploration"
   ## if c(0, ratio), only Large order accepts two downgraded grades;
   ## if c(ratio, 0), only XLarge order accepts two downgraded grades.
   
@@ -756,7 +756,7 @@ remove_effective_avg <- function(trial_stats){
 }
 
 check_insufficient_eggs <- function(egg_number_list){
-  # check which grade has insufficient supplied egg number
+  # check which grade has the most insufficient supplied egg number
   left_num_by_grade <- c()
   for(grade in ordered.grades){
     egg_left <- egg_number_list[['egg_number_left']][[grade]][['n_hat']]
