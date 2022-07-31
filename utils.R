@@ -896,8 +896,11 @@ passing_production_lane <- function(order_grade, left_num, egg.weight, downgrade
     else{
       packing.ratio <- -1  # for other scenarios, don't pack
     }
-    # randomly check if pack the egg into cartons
-    if(runif(1)<=packing.ratio){
+    
+    if(is.nan(packing.ratio)){  # Nan packing.ratio might be caused by Nan downgrade ratios
+      return(c(left_num, packed))
+    }
+    if(runif(1)<=packing.ratio){  # randomly check if pack the egg into cartons
       left_num <- left_num - 1
       packed <- TRUE
     }
