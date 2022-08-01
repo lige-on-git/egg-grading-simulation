@@ -51,13 +51,13 @@ sqrt(e1^2+e2^2+e3^2+e4^2+e5^2+e6^2)/weight_lowerbound  # error
 ## _____________________________________________
 ## Test with trial 2 (accept 2 downgrade grades)
 trial.2 <- trial_stats_summary(2, track_trace)
-get_simple_ratios(trial.2)
+ratios.simple.2 <- get_simple_ratios(trial.2)
 mu.supply2 <- trial.2[['supply_dist_est']][['mu']]
 var.supply2 <- trial.2[['supply_dist_est']][['var']]  # same supply distribution as trial 1
 rules.2 <- list(Jumbo=c("SJumbo"), XLarge=c(), Large=c("XLarge","Jumbo"))
 
 # store means of simulated eggs packed in the Large order and the N2/N1 ratios
-means.L.2 <- c()
+giveaways.2 <- c()
 ratios.21.2 <- c()
 
 for(ratio in 0.001*10^(seq(0,2,0.1))){
@@ -83,19 +83,18 @@ for(ratio in 0.001*10^(seq(0,2,0.1))){
   }
   # run simulation to check if the current ratio is correct
   packed_eggs <- trial.reproduce.wrapper(trial.2_results, trial.2, downgrade_rules=rules.2)
-
-  means.L.2 <- append(means.L.2, mean(packed_eggs[["Large"]]))
+  giveaways.2 <- append(giveaways.2, get_simu_ratios(packed_eggs, trial.2)[['overall_giveaway.ratio']])
   ratios.21.2 <- append(ratios.21.2, ratio)
 }
 
 # check which ratio can result in the most accurate Large order mean
-large.mean <- trial.2$large_order$mean
-plot(ratios.21.2, means.L.2)
-abline(h=large.mean)
+giveaway.actual <- ratios.simple.2$overall_giveaway.ratio
+plot(ratios.21.2, giveaways.2)
+abline(h=giveaway.actual)
 
-means.L.2.copy <- means.L.2
-means.L.2.copy <- abs(means.L.2.copy - large.mean)
-best.ratio21.2 <- ratios.21.2[which.min(means.L.2.copy)]
+giveaways.2.copy <- giveaways.2
+giveaways.2.copy <- abs(giveaways.2.copy - giveaway.actual)
+best.ratio21.2 <- ratios.21.2[which.min(giveaways.2.copy)]
 
 # using the "best" N2/N1 ratio to estimate the "best" downgrade probability
 ordered_num.total2 <- trial.2[['large_order']][['eggs']] + trial.2[['xlarge_order']][['eggs']] + trial.2[['jumbo_order']][['eggs']]
@@ -137,13 +136,13 @@ trial.4_results <- trial.run(ordered_num.total4, mu.supply4, var.supply4, trial.
 ## ________________________________________________
 ## Test with trial 5 (accept 2 downgrade grades)
 trial.5 <- trial_stats_summary(5, track_trace)
-get_simple_ratios(trial.5)
+ratios.simple.5 <- get_simple_ratios(trial.5)
 mu.supply5 <- trial.5[['supply_dist_est']][['mu']]
 var.supply5 <- trial.5[['supply_dist_est']][['var']]  # same supply distribution as trial 4 & 6
 rules.5 <- list(Jumbo=c("SJumbo"), XLarge=c("Jumbo", "SJumbo"), Large=c("XLarge","Jumbo"))
 
 # store means of simulated eggs packed in the Large order and the N2/N1 ratios
-means.L.5 <- c()
+giveaways.5 <- c()
 ratios.21.5.XL <- c()  # ratio to downgrade to XLarge order
 ratios.21.5.L <- c()   # ratio to downgrade to Large order
 
@@ -173,7 +172,7 @@ for(ratio1 in 0.001*10^(seq(0,2,0.1))){
     # run simulation to check if the current ratio is correct
     packed_eggs <- trial.reproduce.wrapper(trial.5_results, trial.5, downgrade_rules=rules.5)
     
-    means.L.5 <- append(means.L.5, mean(packed_eggs[["Large"]]))
+    giveaways.5 <- append(giveaways.5, get_simu_ratios(packed_eggs, trial.5)[['overall_giveaway.ratio']])
     ratios.21.5.XL <- append(ratios.21.5.XL, ratio1)
     ratios.21.5.L <- append(ratios.21.5.L, ratio2)
   }
@@ -182,18 +181,18 @@ end_time <- Sys.time()
 end_time - start_time  # Time difference of around 33.86952 mins for 21^2=441 iterations
 
 # check which ratio can result in the most accurate Large order mean
-plot_ly(x=ratios.21.5.L, y=ratios.21.5.XL, z=means.L.5, type="scatter3d", mode="markers", color=means.L.5)
+plot_ly(x=ratios.21.5.L, y=ratios.21.5.XL, z=giveaways.5, type="scatter3d", mode="markers", color=giveaways.5)
 
-large.mean <- trial.5$large_order$mean
-plot(ratios.21.5.L, means.L.5, xlim=c(0, 0.05), ylim=c(57.3,57.5))
-abline(h=large.mean) 
-plot(ratios.21.5.XL, means.L.5, ylim=c(57.3,57.5))
-abline(h=large.mean)
+giveaway.actual <- ratios.simple.5$overall_giveaway.ratio
+plot(ratios.21.5.L, giveaways.5, xlim=c(0, 0.05), ylim=c(0,0.1))
+abline(h=giveaway.actual) 
+plot(ratios.21.5.XL, giveaways.5)
+abline(h=giveaway.actual)
 
-means.L.5.copy <- means.L.5
-means.L.5.copy <- abs(means.L.5.copy - large.mean)
-best.ratio21.5.XL <- ratios.21.5.XL[which.min(means.L.5.copy)]
-best.ratio21.5.L <- ratios.21.5.L[which.min(means.L.5.copy)]
+giveaways.5.copy <- giveaways.5
+giveaways.5.copy <- abs(giveaways.5.copy - giveaway.actual)
+best.ratio21.5.XL <- ratios.21.5.XL[which.min(giveaways.5.copy)]
+best.ratio21.5.L <- ratios.21.5.L[which.min(giveaways.5.copy)]
 
 # using the "best" N2/N1 ratio to estimate the "best" downgrade probability
 ordered_num.total5 <- trial.5[['large_order']][['eggs']] + trial.5[['xlarge_order']][['eggs']] + trial.5[['jumbo_order']][['eggs']]
@@ -214,13 +213,13 @@ trial.5_results <- trial.run(ordered_num.total5, mu.supply5, var.supply5, trial.
 ## ________________________________________________
 ## Test with trial 6 (accept 2 downgrade grades)
 trial.6 <- trial_stats_summary(6, track_trace)
-get_simple_ratios(trial.6)
+ratios.simple.6 <- get_simple_ratios(trial.6)
 mu.supply6 <- trial.6[['supply_dist_est']][['mu']]
 var.supply6 <- trial.6[['supply_dist_est']][['var']]  # same supply distribution as trial 4 & 5
 rules.6 <- list(Jumbo=c("SJumbo"), XLarge=c("Jumbo", "SJumbo"), Large=c("XLarge","Jumbo"))
 
 # store means of simulated eggs packed in the Large order and the N2/N1 ratios
-means.L.6 <- c()
+giveaways.6 <- c()
 ratios.21.6.XL <- c()  # ratio to downgrade to XLarge order
 ratios.21.6.L <- c()   # ratio to downgrade to Large order
 
@@ -249,25 +248,25 @@ for(ratio1 in 0.001*10^(seq(0,2,0.1))){
     # run simulation to check if the current ratio is correct
     packed_eggs <- trial.reproduce.wrapper(trial.6_results, trial.6, downgrade_rules=rules.6)
     
-    means.L.6 <- append(means.L.6, mean(packed_eggs[["Large"]]))
+    giveaways.6 <- append(giveaways.6, get_simu_ratios(packed_eggs, trial.6)[['overall_giveaway.ratio']])
     ratios.21.6.XL <- append(ratios.21.6.XL, ratio1)
     ratios.21.6.L <- append(ratios.21.6.L, ratio2)
   }
 }
 
 # check which ratio can result in the most accurate Large order mean
-plot_ly(x=ratios.21.6.L, y=ratios.21.6.XL, z=means.L.6, type="scatter3d", mode="markers", color=means.L.6)
+plot_ly(x=ratios.21.6.L, y=ratios.21.6.XL, z=giveaways.6, type="scatter3d", mode="markers", color=giveaways.6)
 
-large.mean <- trial.6$large_order$mean
-plot(ratios.21.6.L, means.L.6, xlim=c(0, 0.03), ylim=c(57.5,57.9))
-abline(h=large.mean) 
-plot(ratios.21.6.XL, means.L.6, ylim=c(57.5,57.9))
-abline(h=large.mean)
+giveaway.actual <- ratios.simple.6$overall_giveaway.ratio
+plot(ratios.21.6.L, giveaways.6, xlim=c(0, 0.03))
+abline(h=giveaway.actual) 
+plot(ratios.21.6.XL, giveaways.6)
+abline(h=giveaway.actual)
 
-means.L.6.copy <- means.L.6
-means.L.6.copy <- abs(means.L.6.copy - large.mean)
-best.ratio21.6.XL <- ratios.21.6.XL[which.min(means.L.6.copy)]
-best.ratio21.6.L <- ratios.21.6.L[which.min(means.L.6.copy)]
+giveaways.6.copy <- giveaways.6
+giveaways.6.copy <- abs(giveaways.6.copy - giveaway.actual)
+best.ratio21.6.XL <- ratios.21.6.XL[which.min(giveaways.6.copy)]
+best.ratio21.6.L <- ratios.21.6.L[which.min(giveaways.6.copy)]
 
 # using the "best" N2/N1 ratio to estimate the "best" downgrade probability
 ordered_num.total6 <- trial.6[['large_order']][['eggs']] + trial.6[['xlarge_order']][['eggs']] + trial.6[['jumbo_order']][['eggs']]
